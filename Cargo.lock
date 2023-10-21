@@ -523,6 +523,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpu9250"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "092728a25629bd7952af8589585732e13a2d6b93c5c1ef37712524c60c766a43"
+dependencies = [
+ "bitflags",
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
 name = "nb"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -802,6 +812,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
+name = "sx1509"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709078a7b974904af72b1b66466b560a86295b9333c86df7009cdae6ee62f649"
+dependencies = [
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -843,8 +862,10 @@ dependencies = [
  "embedded-storage",
  "fixed",
  "futures",
+ "mpu9250",
  "panic-probe",
  "static_cell",
+ "sx1509",
 ]
 
 [[package]]
