@@ -6,16 +6,8 @@ use nrf_softdevice::ble::{peripheral, Connection};
 
 use core::mem;
 
-#[nrf_softdevice::gatt_service(uuid = "180f")]
-pub struct BatteryService {
-    #[characteristic(uuid = "2a19", read, notify)]
-    pub battery_level: i16,
-}
+use crate::Server;
 
-#[nrf_softdevice::gatt_server]
-pub struct Server {
-    pub bas: BatteryService,
-}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -85,5 +77,4 @@ where
     let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
      peripheral::advertise_connectable(sd, adv, &config).await
 }
-
 

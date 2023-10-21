@@ -6,17 +6,13 @@
 
 mod ble;
 
-use ble::{softdevice_setup, advertise_connectable, Server, ServerEvent, BatteryServiceEvent};
+use ble::{softdevice_setup, advertise_connectable};
 
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt::InterruptExt;
-use embassy_nrf::peripherals::SAADC;
-use embassy_nrf::saadc::{AnyInput, Input, Saadc};
-use embassy_nrf::{bind_interrupts, interrupt, saadc};
-//use embassy_nrf::gpio::{AnyPin, Input, Level, Output, Pin, Pull, OutputDrive};
-use embassy_time::{Duration, Timer};
+use embassy_nrf::interrupt;
+use embassy_nrf::gpio::{AnyPin, Input, Pin, Pull};
 
 use futures::future::{select, Either};
 use futures::pin_mut;
@@ -24,39 +20,97 @@ use nrf_softdevice::ble::{gatt_server, Connection};
 
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs {
-    SAADC => saadc::InterruptHandler;
-});
+async fn notify_btn1_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
+    loop {
+        btn.wait_for_low().await;
 
+        match server.buttons.btn1_notify(connection, &true) {
+            Ok(_) => info!("btn1 low notify success"),
+            Err(e) => info!("btn1 low notify error: {:?}", e),
+        }
 
-/// Initializes the SAADC peripheral in single-ended mode on the given pin.
-fn init_adc(adc_pin: AnyInput, adc: SAADC) -> Saadc<'static, 1> {
-    // Then we initialize the ADC. We are only using one channel in this example.
-    let config = saadc::Config::default();
-    let channel_cfg = saadc::ChannelConfig::single_ended(adc_pin.degrade_saadc());
-    interrupt::SAADC.set_priority(interrupt::Priority::P3);
-    let saadc = saadc::Saadc::new(adc, Irqs, config, [channel_cfg]);
-    saadc
+        btn.wait_for_high().await;
+
+        match server.buttons.btn1_notify(connection, &false) {
+            Ok(_) => info!("btn1 high notify success"),
+            Err(e) => info!("btn1 high notify error: {:?}", e),
+        }
+    }
 }
 
-/// Reads the current ADC value every second and notifies the connected client.
-async fn notify_adc_value<'a>(saadc: &'a mut Saadc<'_, 1>, server: &'a Server, connection: &'a Connection) {
+async fn notify_btn2_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
     loop {
-        let mut buf = [0i16; 1];
-        saadc.sample(&mut buf).await;
+        btn.wait_for_low().await;
 
-        // We only sampled one ADC channel.
-        let adc_raw_value: i16 = buf[0];
+        match server.buttons.btn2_notify(connection, &true) {
+            Ok(_) => info!("btn2 low notify success"),
+            Err(e) => info!("btn2 low notify error: {:?}", e),
+        }
 
-        // Try and notify the connected client of the new ADC value.
-        match server.bas.battery_level_notify(connection, &adc_raw_value) {
-            Ok(_) => info!("Battery adc_raw_value: {=i16}", &adc_raw_value),
-            Err(_) => unwrap!(server.bas.battery_level_set(&adc_raw_value)),
-        };
+        btn.wait_for_high().await;
 
-        // Sleep for one second.
-        Timer::after(Duration::from_secs(1)).await
+        match server.buttons.btn2_notify(connection, &false) {
+            Ok(_) => info!("btn2 high notify success"),
+            Err(e) => info!("btn2 high notify error: {:?}", e),
+        }
     }
+}
+
+async fn notify_btn3_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
+    loop {
+        btn.wait_for_low().await;
+
+        match server.buttons.btn3_notify(connection, &true) {
+            Ok(_) => info!("btn3 low notify success"),
+            Err(e) => info!("btn3 low notify error: {:?}", e),
+        }
+
+        btn.wait_for_high().await;
+
+        match server.buttons.btn3_notify(connection, &false) {
+            Ok(_) => info!("btn3 high notify success"),
+            Err(e) => info!("btn3 high notify error: {:?}", e),
+        }
+    }
+}
+
+async fn notify_btn4_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
+    loop {
+        btn.wait_for_low().await;
+
+        match server.buttons.btn4_notify(connection, &true) {
+            Ok(_) => info!("btn4 low notify success"),
+            Err(e) => info!("btn4 low notify error: {:?}", e),
+        }
+
+        btn.wait_for_high().await;
+
+        match server.buttons.btn4_notify(connection, &false) {
+            Ok(_) => info!("btn4 high notify success"),
+            Err(e) => info!("btn4 high notify error: {:?}", e),
+        }
+    }
+}
+
+
+#[nrf_softdevice::gatt_service(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3570")]
+pub struct ButtonService {
+    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3571", read, notify)]
+    btn1: bool,
+
+    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3572", read, notify)]
+    btn2: bool,
+
+    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3573", read, notify)]
+    btn3: bool,
+
+    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3574", read, notify)]
+    btn4: bool,
+}
+
+#[nrf_softdevice::gatt_server]
+pub struct Server {
+    pub buttons: ButtonService,
 }
 
 
@@ -66,18 +120,17 @@ async fn main(spawner: Spawner) {
 
     const DEVICE_NAME: &'static [u8; 18] = b"Thingy Wii Control";
 
-
     // First we get the peripherals access crate.
     let mut config = embassy_nrf::config::Config::default();
     config.gpiote_interrupt_priority = interrupt::Priority::P2;
     config.time_interrupt_priority = interrupt::Priority::P2;
     let p = embassy_nrf::init(config);
 
-    // Then we initialize the ADC. We are only using one channel in this example.
-    let adc_pin = p.P0_29.degrade_saadc();
-    let mut saadc = init_adc(adc_pin, p.SAADC);
-    // Indicated: wait for ADC calibration.
-    saadc.calibrate().await;
+    // Define buttons
+    let mut btn1 = Input::new(p.P0_13.degrade(), Pull::Up);
+    let mut btn2 = Input::new(p.P0_14.degrade(), Pull::Up);
+    let mut btn3 = Input::new(p.P0_15.degrade(), Pull::Up);
+    let mut btn4 = Input::new(p.P0_16.degrade(), Pull::Up);
 
     let (sd, server) = softdevice_setup(&spawner, &DEVICE_NAME);
 
@@ -91,29 +144,46 @@ async fn main(spawner: Spawner) {
         //
         // Event enums (ServerEvent's) are generated by nrf_softdevice::gatt_server
         // proc macro when applied to the Server struct above
-        let adc_fut = notify_adc_value(&mut saadc, &server, &conn);
+        let btn1_fut = notify_btn1_value(&mut btn1, &server, &conn);
+        let btn2_fut = notify_btn2_value(&mut btn2, &server, &conn);
+        let btn3_fut = notify_btn3_value(&mut btn3, &server, &conn);
+        let btn4_fut = notify_btn4_value(&mut btn4, &server, &conn);
+
         let gatt_fut = gatt_server::run(&conn, &server, |e| match e {
-            ServerEvent::Bas(e) => match e {
-                BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
-                    info!("battery notifications: {}", notifications)
+            ServerEvent::Buttons(e) => match e {
+                ButtonServiceEvent::Btn1CccdWrite { notifications } => {
+                    info!("button 1 notifications: {}", notifications)
+                }
+                ButtonServiceEvent::Btn2CccdWrite { notifications } => {
+                    info!("button 2 notifications: {}", notifications)
+                }
+                ButtonServiceEvent::Btn3CccdWrite { notifications } => {
+                    info!("button 3 notifications: {}", notifications)
+                }
+                ButtonServiceEvent::Btn4CccdWrite { notifications } => {
+                    info!("button 4 notifications: {}", notifications)
                 }
             },
         });
 
-        pin_mut!(adc_fut);
+        pin_mut!(btn1_fut);
+        pin_mut!(btn2_fut);
+        pin_mut!(btn3_fut);
+        pin_mut!(btn4_fut);
         pin_mut!(gatt_fut);
 
-        // We are using "select" to wait for either one of the futures to complete.
-        // There are some advantages to this approach:
-        //  - we only gather data when a client is connected, therefore saving some power.
-        //  - when the GATT server finishes operating, our ADC future is also automatically aborted.
-        let _ = match select(adc_fut, gatt_fut).await {
-            Either::Left((_, _)) => {
-                info!("ADC encountered an error and stopped!")
-            }
-            Either::Right((e, _)) => {
-                info!("gatt_server run exited with error: {:?}", e);
-            }
-        };
+        select(
+            gatt_fut,
+            select(
+                btn1_fut,
+                select(
+                    btn2_fut,
+                    select(
+                        btn3_fut,
+                        btn4_fut
+                    )
+                )
+            )
+        ).await;
     }
 }
