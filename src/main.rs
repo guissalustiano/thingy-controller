@@ -6,6 +6,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{bind_interrupts, peripherals};
+use embassy_time::Delay;
+use mpu9250::Mpu9250;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -31,4 +33,9 @@ async fn main(_spawner: Spawner) {
     let pins = unwrap!(expander.borrow(&mut twi).get_bank_a_data());
 
     info!("pins: {=u8}", pins);
+
+    let mut mpu9250 = Mpu9250::marg_default(twi, &mut Delay).expect("unable to make MPU9250");
+
+    let who_am_i = mpu9250.who_am_i().expect("could not read WHO_AM_I");
+    info!("WHO_AM_I: {}", who_am_i);
 }

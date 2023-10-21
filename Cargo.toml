@@ -26,6 +26,7 @@ embedded-storage = "0.3.0"
 embedded-hal = { version = "1.0.0-rc.1" }
 embedded-hal-async = { version = "1.0.0-rc.1", optional = true }
 sx1509 = "0.2.0"
+mpu9250 = { version = "0.25.0", features = ["i2c"] }
 
 [profile.release]
 debug = 2
