@@ -10,15 +10,15 @@ embassy-sync = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy
 embassy-executor = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers", "nightly"] }
 embassy-time = { version = "0.1.5", git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
 embassy-nrf = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nrf52832", "time-driver-rtc1", "gpiote", "unstable-pac", "time", "unstable-traits", "nightly"] }
-embedded-io = { version = "0.6.0", features = ["defmt-03"]  }
-embedded-io-async = { version = "0.6.0", optional = true, features = ["defmt-03"] }
+nrf-softdevice = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nightly", "defmt", "nrf52832", "s132", "ble-peripheral", "ble-central", "critical-section-impl", "ble-gatt-server"] }
+nrf-softdevice-s132 = { version = "0.1.1", git = "https://github.com/embassy-rs/nrf-softdevice" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
 
 fixed = "1.10.0"
 static_cell = "1.1"
-cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
