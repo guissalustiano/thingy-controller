@@ -6,7 +6,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{bind_interrupts, peripherals};
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::Delay;
+use embassy_time::Timer;
 use mpu9250::Mpu9250;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -17,6 +19,13 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
+
+    info!("Turning on Vdd");
+    let mut led = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
+
+    Timer::after_millis(300).await;
+
+
     info!("Initializing TWI...");
     let config = twim::Config::default();
     let mut twi = Twim::new(p.TWISPI0, Irqs, p.P0_07, p.P0_08, config);
