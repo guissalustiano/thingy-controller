@@ -30,26 +30,36 @@ use mpu9250::{Mpu9250, Imu, device};
 
 use {defmt_rtt as _, panic_probe as _};
 
+fn unwrap_notify<T>(result: Result<(), T>, name: &str) {
+    match result {
+        Ok(_) => info!("{} notify success", name),
+        Err(_) => info!("{} notify error", name),
+    }
+}
+
 async fn button_service<'a>(btn: &mut Input<'static, P0_11>, server: &'a Server, connection: &'a Connection) {
     loop {
         btn.wait_for_low().await;
-        unwrap!(server.buttons.button_notify(connection, &true));
+        unwrap_notify(server.buttons.button_notify(connection, &true), "button up");
 
         btn.wait_for_high().await;
-        unwrap!(server.buttons.button_notify(connection, &false));
+        unwrap_notify(server.buttons.button_notify(connection, &false), "button down");
     }
 }
 
 async fn mpu_service<'a>(mpu: &mut Mpu9250<device::I2cDevice<I2cDevice<'static, NoopRawMutex, Twim<'static, TWISPI0>>>, Imu>, server: &'a Server, connection: &'a Connection) {
     loop {
-        Timer::after_millis(8000).await;
+        Timer::after_millis(10).await;
         let data: ImuMeasurements<(f32, f32, f32)> = mpu.all().expect("could not read all");
         let acel = data.accel;
         let gyro = data.gyro;
 
-        unwrap!(server.buttons.accelerometer_x_notify(connection, &0.0));
-        unwrap!(server.buttons.accelerometer_y_notify(connection, &1.0));
-        unwrap!(server.buttons.accelerometer_z_notify(connection, &2.0));
+        unwrap_notify(server.buttons.accelerometer_x_notify(connection, &acel.0), "accel_x");
+        unwrap_notify(server.buttons.accelerometer_y_notify(connection, &acel.1), "accel_y");
+        unwrap_notify(server.buttons.accelerometer_z_notify(connection, &acel.2), "accel_z");
+        unwrap_notify(server.buttons.gyroscope_x_notify(connection, &gyro.0), "gyro_x");
+        unwrap_notify(server.buttons.gyroscope_y_notify(connection, &gyro.1), "gyro_y");
+        unwrap_notify(server.buttons.gyroscope_z_notify(connection, &gyro.2), "gyro_z");
         info!("accel: {:?}; gyro: {:?};", acel, gyro);
     }
 }
