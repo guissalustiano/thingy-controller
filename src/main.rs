@@ -8,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{bind_interrupts, peripherals};
-use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::gpio::{Level, Output, OutputDrive, Input, Pull, Pin};
 use embassy_time::Delay;
 use embassy_time::Timer;
 use static_cell::StaticCell;
@@ -31,6 +31,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Turning on Vdd");
     let mut _vdd_pwd = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
+    let btn = Input::new(p.P0_11.degrade(), Pull::Up);
 
     Timer::after_millis(300).await;
 
@@ -54,9 +55,9 @@ async fn main(_spawner: Spawner) {
     unwrap!(expander.borrow().set_bank_b_data(0x01)); // Turing on mpu pwd
 
     let mut i2c_dev2 = I2cDevice::new(i2c_bus);
-    let mut mpu = Mpu9250::marg_default(i2c_dev2, &mut Delay).expect("unable to make MPU9250");
+    let mut mpu = Mpu9250::marg_default(i2c_dev2, &mut Delay).unwrap();
 
-    let who_am_i = mpu.who_am_i().expect("could not read WHO_AM_I");
+    let who_am_i = mpu.who_am_i().expect("could not read who am i");
     info!("Who mpu is?: {}", who_am_i);
 
     loop {
@@ -65,13 +66,15 @@ async fn main(_spawner: Spawner) {
         let temp = data.temp;
         let gyro = data.gyro;
         let mag = data.mag;
+        let btn_state = btn.is_low();
 
-        info!("acel: {}", acel);
-        info!("temp: {}", temp);
-        info!("gyro: {}", gyro);
-        info!("mag: {}", mag);
-        info!("----------------------------------");
-
-        Timer::after_millis(200).await;
+        info!("----------------------------------
+              temp: {:?}
+              accel: {:?}
+              gyro: {:?}
+              mag: {:?}
+              btn: {:?}",
+            temp, acel, gyro, mag, btn_state
+        );
     }
 }
