@@ -7,111 +7,87 @@
 mod ble;
 
 use ble::{softdevice_setup, advertise_connectable};
+use mpu9250::ImuMeasurements;
 
-
+use core::cell::RefCell;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
-use embassy_nrf::gpio::{AnyPin, Input, Pin, Pull};
+use embassy_nrf::{interrupt, bind_interrupts};
+use embassy_nrf::gpio::{Input, Pull, Output, Level, OutputDrive};
+use embassy_time::{Delay, Timer};
+use static_cell::StaticCell;
 
-use futures::future::{select, Either};
+use embassy_nrf::peripherals::{P0_11, TWISPI0};
+use embassy_nrf::twim::{self, Twim};
+use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
+use futures::future::select;
 use futures::pin_mut;
+use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 use nrf_softdevice::ble::{gatt_server, Connection};
+use sx1509::Sx1509;
+use mpu9250::{Mpu9250, Imu, device};
+
 
 use {defmt_rtt as _, panic_probe as _};
 
-async fn notify_btn1_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
+async fn button_service<'a>(btn: &mut Input<'static, P0_11>, server: &'a Server, connection: &'a Connection) {
     loop {
         btn.wait_for_low().await;
-
-        match server.buttons.btn1_notify(connection, &true) {
-            Ok(_) => info!("btn1 low notify success"),
-            Err(e) => info!("btn1 low notify error: {:?}", e),
-        }
+        unwrap!(server.buttons.button_notify(connection, &true));
 
         btn.wait_for_high().await;
-
-        match server.buttons.btn1_notify(connection, &false) {
-            Ok(_) => info!("btn1 high notify success"),
-            Err(e) => info!("btn1 high notify error: {:?}", e),
-        }
+        unwrap!(server.buttons.button_notify(connection, &false));
     }
 }
 
-async fn notify_btn2_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
+async fn mpu_service<'a>(mpu: &mut Mpu9250<device::I2cDevice<I2cDevice<'static, NoopRawMutex, Twim<'static, TWISPI0>>>, Imu>, server: &'a Server, connection: &'a Connection) {
     loop {
-        btn.wait_for_low().await;
+        Timer::after_millis(8000).await;
+        let data: ImuMeasurements<(f32, f32, f32)> = mpu.all().expect("could not read all");
+        let acel = data.accel;
+        let gyro = data.gyro;
 
-        match server.buttons.btn2_notify(connection, &true) {
-            Ok(_) => info!("btn2 low notify success"),
-            Err(e) => info!("btn2 low notify error: {:?}", e),
-        }
-
-        btn.wait_for_high().await;
-
-        match server.buttons.btn2_notify(connection, &false) {
-            Ok(_) => info!("btn2 high notify success"),
-            Err(e) => info!("btn2 high notify error: {:?}", e),
-        }
+        unwrap!(server.buttons.accelerometer_x_notify(connection, &0.0));
+        unwrap!(server.buttons.accelerometer_y_notify(connection, &1.0));
+        unwrap!(server.buttons.accelerometer_z_notify(connection, &2.0));
+        info!("accel: {:?}; gyro: {:?};", acel, gyro);
     }
 }
 
-async fn notify_btn3_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
-    loop {
-        btn.wait_for_low().await;
-
-        match server.buttons.btn3_notify(connection, &true) {
-            Ok(_) => info!("btn3 low notify success"),
-            Err(e) => info!("btn3 low notify error: {:?}", e),
-        }
-
-        btn.wait_for_high().await;
-
-        match server.buttons.btn3_notify(connection, &false) {
-            Ok(_) => info!("btn3 high notify success"),
-            Err(e) => info!("btn3 high notify error: {:?}", e),
-        }
-    }
-}
-
-async fn notify_btn4_value<'a>(btn: &mut Input<'static, AnyPin>, server: &'a Server, connection: &'a Connection) {
-    loop {
-        btn.wait_for_low().await;
-
-        match server.buttons.btn4_notify(connection, &true) {
-            Ok(_) => info!("btn4 low notify success"),
-            Err(e) => info!("btn4 low notify error: {:?}", e),
-        }
-
-        btn.wait_for_high().await;
-
-        match server.buttons.btn4_notify(connection, &false) {
-            Ok(_) => info!("btn4 high notify success"),
-            Err(e) => info!("btn4 high notify error: {:?}", e),
-        }
-    }
-}
-
-
-#[nrf_softdevice::gatt_service(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3570")]
+#[nrf_softdevice::gatt_service(uuid = "0000DAD0-0000-0000-0000-000000000000")]
 pub struct ButtonService {
-    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3571", read, notify)]
-    btn1: bool,
+    #[characteristic(uuid = "0000DAD0-0001-0000-0000-000000000000", notify)]
+    button: bool,
 
-    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3572", read, notify)]
-    btn2: bool,
+    #[characteristic(uuid = "0000DAD0-0002-0000-0000-000000000000", notify)]
+    accelerometer_x: f32,
 
-    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3573", read, notify)]
-    btn3: bool,
+    #[characteristic(uuid = "0000DAD0-0002-0000-0000-000000000001", notify)]
+    accelerometer_y: f32,
 
-    #[characteristic(uuid = "4eaf4832-e747-4f91-95c7-fce811ba3574", read, notify)]
-    btn4: bool,
+    #[characteristic(uuid = "0000DAD0-0002-0000-0000-000000000002", notify)]
+    accelerometer_z: f32,
+
+    #[characteristic(uuid = "0000DAD0-0003-0000-0000-000000000000", notify)]
+    gyroscope_x: f32,
+
+    #[characteristic(uuid = "0000DAD0-0003-0000-0000-000000000001", notify)]
+    gyroscope_y: f32,
+
+    #[characteristic(uuid = "0000DAD0-0003-0000-0000-000000000002", notify)]
+    gyroscope_z: f32,
 }
 
 #[nrf_softdevice::gatt_server]
 pub struct Server {
     pub buttons: ButtonService,
 }
+
+bind_interrupts!(struct Irqs {
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<TWISPI0>;
+});
+
+static I2C_BUS: StaticCell<NoopMutex<RefCell<Twim<TWISPI0>>>> = StaticCell::new();
 
 
 #[embassy_executor::main]
@@ -126,63 +102,81 @@ async fn main(spawner: Spawner) {
     config.time_interrupt_priority = interrupt::Priority::P2;
     let p = embassy_nrf::init(config);
 
-    // Define buttons
-    let mut btn1 = Input::new(p.P0_13.degrade(), Pull::Up);
-    let mut btn2 = Input::new(p.P0_14.degrade(), Pull::Up);
-    let mut btn3 = Input::new(p.P0_15.degrade(), Pull::Up);
-    let mut btn4 = Input::new(p.P0_16.degrade(), Pull::Up);
+    let mut _vdd_pwd = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
+    let mut btn = Input::new(p.P0_11, Pull::Up);
+    Timer::after_millis(10).await;
 
     let (sd, server) = softdevice_setup(&spawner, &DEVICE_NAME);
 
+    info!("Initializing TWI...");
+    let config = twim::Config::default();
+    let i2c = Twim::new(p.TWISPI0, Irqs, p.P0_07, p.P0_08, config);
+    let i2c_bus = I2C_BUS.init(NoopMutex::new(RefCell::new(i2c)));
+
+    let mut i2c_dev1 = I2cDevice::new(i2c_bus);
+    let expander = Sx1509::new(&mut i2c_dev1, sx1509::DEFAULT_ADDRESS);
+    let mut expander = expander.take(i2c_dev1);
+    info!("Applying reset");
+    unwrap!(expander.borrow().software_reset());
+
+    info!("Setting back direction");
+    unwrap!(expander.borrow().set_bank_a_direction(1));
+    unwrap!(expander.borrow().set_bank_b_direction(1));
+
+    info!("Setting pin 1 to output");
+    unwrap!(expander.borrow().set_bank_a_data(0x70));
+    unwrap!(expander.borrow().set_bank_b_data(0x01)); // Turning on mpu pwd
+
+    let i2c_dev2 = I2cDevice::new(i2c_bus);
+
+    let mut mpu = Mpu9250::imu_default(i2c_dev2, &mut Delay).unwrap();
+
+    let who_am_i = mpu.who_am_i().expect("could not read who am i");
+    info!("Who mpu is?: {}", who_am_i);
+
     loop {
+        info!("advertising...");
         let conn = unwrap!(advertise_connectable(sd, &DEVICE_NAME).await);
         info!("advertising done! I have a connection.");
 
-        // We have a GATT connection. Now we will create two futures:
-        //  - An infinite loop gathering data from the ADC and notifying the clients.
-        //  - A GATT server listening for events from the connected client.
-        //
-        // Event enums (ServerEvent's) are generated by nrf_softdevice::gatt_server
-        // proc macro when applied to the Server struct above
-        let btn1_fut = notify_btn1_value(&mut btn1, &server, &conn);
-        let btn2_fut = notify_btn2_value(&mut btn2, &server, &conn);
-        let btn3_fut = notify_btn3_value(&mut btn3, &server, &conn);
-        let btn4_fut = notify_btn4_value(&mut btn4, &server, &conn);
+        let button_fut = button_service(&mut btn, &server, &conn);
+        let mpu_fut = mpu_service(&mut mpu, &server, &conn);
 
         let gatt_fut = gatt_server::run(&conn, &server, |e| match e {
             ServerEvent::Buttons(e) => match e {
-                ButtonServiceEvent::Btn1CccdWrite { notifications } => {
-                    info!("button 1 notifications: {}", notifications)
+                ButtonServiceEvent::ButtonCccdWrite { notifications } => {
+                    info!("button notifications: {}", notifications)
                 }
-                ButtonServiceEvent::Btn2CccdWrite { notifications } => {
-                    info!("button 2 notifications: {}", notifications)
+                ButtonServiceEvent::AccelerometerXCccdWrite { notifications } => {
+                    info!("accelerometer_x notifications: {}", notifications)
                 }
-                ButtonServiceEvent::Btn3CccdWrite { notifications } => {
-                    info!("button 3 notifications: {}", notifications)
+                ButtonServiceEvent::AccelerometerYCccdWrite { notifications } => {
+                    info!("accelerometer_y notifications: {}", notifications)
                 }
-                ButtonServiceEvent::Btn4CccdWrite { notifications } => {
-                    info!("button 4 notifications: {}", notifications)
+                ButtonServiceEvent::AccelerometerZCccdWrite { notifications } => {
+                    info!("accelerometer_z notifications: {}", notifications)
+                }
+                ButtonServiceEvent::GyroscopeXCccdWrite { notifications } => {
+                    info!("gyroscope_x notifications: {}", notifications)
+                }
+                ButtonServiceEvent::GyroscopeYCccdWrite { notifications } => {
+                    info!("gyroscope_y notifications: {}", notifications)
+                }
+                ButtonServiceEvent::GyroscopeZCccdWrite { notifications } => {
+                    info!("gyroscope_z notifications: {}", notifications)
                 }
             },
         });
 
-        pin_mut!(btn1_fut);
-        pin_mut!(btn2_fut);
-        pin_mut!(btn3_fut);
-        pin_mut!(btn4_fut);
         pin_mut!(gatt_fut);
+        pin_mut!(button_fut);
+        pin_mut!(mpu_fut);
 
         select(
             gatt_fut,
             select(
-                btn1_fut,
-                select(
-                    btn2_fut,
-                    select(
-                        btn3_fut,
-                        btn4_fut
-                    )
-                )
+                button_fut,
+                mpu_fut,
             )
         ).await;
     }

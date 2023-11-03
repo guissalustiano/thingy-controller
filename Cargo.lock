@@ -609,6 +609,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
 
 [[package]]
+name = "mpu9250"
+version = "0.25.0"
+source = "git+https://github.com/guissalustiano/mpu9250#27cc06cd68d4bc4892a3513df6aaee2321c45f70"
+dependencies = [
+ "bitflags",
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
 name = "nb"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -977,6 +986,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
+name = "sx1509"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709078a7b974904af72b1b66466b560a86295b9333c86df7009cdae6ee62f649"
+dependencies = [
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,6 +1024,7 @@ dependencies = [
  "cortex-m-rt",
  "defmt",
  "defmt-rtt",
+ "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures 0.1.0 (git+https://github.com/embassy-rs/embassy)",
  "embassy-nrf",
@@ -1016,10 +1035,12 @@ dependencies = [
  "embedded-storage",
  "fixed",
  "futures",
+ "mpu9250",
  "nrf-softdevice",
  "nrf-softdevice-s132",
  "panic-probe",
  "static_cell",
+ "sx1509",
 ]
 
 [[package]]

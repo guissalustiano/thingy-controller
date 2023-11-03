@@ -9,6 +9,7 @@ embassy-futures = { version = "0.1.0", git = "https://github.com/embassy-rs/emba
 embassy-sync = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nightly"] }
 embassy-executor = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers", "nightly"] }
 embassy-time = { version = "0.1.5", git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
+embassy-embedded-hal = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy" }
 embassy-nrf = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nrf52832", "time-driver-rtc1", "gpiote", "unstable-pac", "time", "unstable-traits", "nightly"] }
 nrf-softdevice = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nightly", "defmt", "nrf52832", "s132", "ble-peripheral", "ble-central", "critical-section-impl", "ble-gatt-server"] }
 nrf-softdevice-s132 = { version = "0.1.1", git = "https://github.com/embassy-rs/nrf-softdevice" }
@@ -25,6 +26,8 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 embedded-storage = "0.3.0"
 embedded-hal = { version = "1.0.0-rc.1" }
 embedded-hal-async = { version = "1.0.0-rc.1", optional = true }
+sx1509 = "0.2.0"
+mpu9250 = { version = "0.25.0", git = "https://github.com/guissalustiano/mpu9250", features = ["i2c"] }
 
 [profile.release]
 debug = 2
