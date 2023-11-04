@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import "package:dart_amqp/dart_amqp.dart";
 import 'package:logger/logger.dart';
+import 'dart:typed_data';
 
 var logger = Logger();
 
@@ -75,11 +76,17 @@ class _HomePageState extends State<HomePage> {
                       logger.i('Looking characteristic ${characteristic.uuid}');
                       if (characteristic.properties.notify) {
                           logger.i('Found notify characteristic ${characteristic.uuid}');
-                          var queue = await channel.queue("${device.remoteId}/${service.uuid}/${characteristic.uuid}");
+                          var queue = await channel.queue(
+                            "${device.remoteId}/${service.uuid}/${characteristic.uuid}",
+                            arguments: {
+                              "x-message-ttl": 1000,
+                            }
+                          );
                           
                           final characteristicSubscription = characteristic.onValueReceived.listen((value) {
-                            logger.i('Received value $value from ${characteristic.uuid}');
-                            queue.publish(value);
+                            var byteArray = Uint8List.fromList(value);
+                            logger.i('Received value $byteArray from ${characteristic.uuid}');
+                            queue.publish(byteArray);
                         });
                         device.cancelWhenDisconnected(characteristicSubscription);
                         await characteristic.setNotifyValue(true);
