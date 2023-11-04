@@ -37,6 +37,7 @@ dependencies:
   cupertino_icons: ^1.0.2
   flutter_blue_plus: ^1.25.1
   logger: ^2.0.2+1
+  dart_amqp: ^0.2.5
 
 dev_dependencies:
   flutter_test:
