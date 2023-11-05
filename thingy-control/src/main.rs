@@ -61,6 +61,7 @@ async fn mpu_service<'a>(mpu: &mut Mpu9250<device::I2cDevice<I2cDevice<'static, 
         unwrap_notify(server.buttons.gyroscope_y_notify(connection, &gyro.1), "gyro_y");
         unwrap_notify(server.buttons.gyroscope_z_notify(connection, &gyro.2), "gyro_z");
         info!("accel: {:?}; gyro: {:?};", acel, gyro);
+        info!("accelX: {} {:#x}", acel.0, acel.0.to_bits());
     }
 }
 
@@ -136,6 +137,7 @@ async fn main(spawner: Spawner) {
     info!("Setting pin 1 to output");
     unwrap!(expander.borrow().set_bank_a_data(0x70));
     unwrap!(expander.borrow().set_bank_b_data(0x01)); // Turning on mpu pwd
+    Timer::after_millis(100).await;
 
     let i2c_dev2 = I2cDevice::new(i2c_bus);
 

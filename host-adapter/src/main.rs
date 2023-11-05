@@ -1,7 +1,5 @@
-#![feature(impl_trait_in_fn_trait_return)]
-#![feature(unboxed_closures)]
-
 use std::{sync::{Arc, Mutex}, collections::VecDeque};
+use plotters::prelude::*;
 
 use lapin::{
     message::DeliveryResult,
@@ -22,7 +20,7 @@ const GYROSCOPE_X_UUID: &str = "0000dad0-0003-0000-0000-000000000000";
 const GYROSCOPE_Y_UUID: &str = "0000dad0-0003-0000-0000-000000000001";
 const GYROSCOPE_Z_UUID: &str = "0000dad0-0003-0000-0000-000000000002";
 
-const WINDOWS_SIZE: usize = 100;
+const WINDOWS_SIZE: usize = 500;
 static BUTTON_STATE: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(false)));
 static ACCELEROMETER_X_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
 static ACCELEROMETER_Y_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
@@ -84,7 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&ACCELEROMETER_X_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -99,7 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&ACCELEROMETER_Y_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -114,7 +110,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&ACCELEROMETER_Z_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -129,7 +124,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&GYROSCOPE_X_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -144,7 +138,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&GYROSCOPE_Y_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -159,11 +152,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
             push_value(&GYROSCOPE_Z_STATE, value);
-            info!("Received value {:?}", value);
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
     })?;
+
+
+    // Plot data
+    tokio::spawn(async move {
+        loop {
+            plot_data();
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    });
 
 
 
@@ -171,4 +172,100 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::future::pending::<()>().await;
 
     Ok(())
+}
+
+fn plot_data() {
+    plot_accelerometer();
+    plot_gyroscope();
+}
+
+fn plot_gyroscope() {
+     let root = BitMapBackend::new("Gyroscope.png", (640, 480)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Gyroscope", ("sans-serif", 50).into_font())
+        .margin(5)
+        .x_label_area_size(30)
+        .y_label_area_size(30)
+        .build_cartesian_2d(0..WINDOWS_SIZE, -4f32..4f32).unwrap();
+
+    chart.configure_mesh().draw().unwrap();
+
+    // Axis X
+    let data_x = GYROSCOPE_X_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_x.iter().enumerate().map(|(i, d)| (i, *d)), &BLUE,
+    )).unwrap();
+    chart.draw_series(
+        data_x.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, BLUE.filled()),
+    )).unwrap().label("X");
+
+    // Axis Y
+    let data_y = GYROSCOPE_Y_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_y.iter().enumerate().map(|(i, d)| (i, *d)), &RED,
+    )).unwrap();
+    chart.draw_series(
+        data_y.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, RED.filled()),
+    )).unwrap().label("Y");
+
+    // Axis Z
+    let data_z = GYROSCOPE_Z_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_z.iter().enumerate().map(|(i, d)| (i, *d)), &GREEN,
+    )).unwrap();
+    chart.draw_series(
+        data_z.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, GREEN.filled()),
+    )).unwrap().label("Z");
+
+    root.present().unwrap();
+}
+
+fn plot_accelerometer() {
+     let root = BitMapBackend::new("Accelerometer.png", (640, 480)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Accelerometer", ("sans-serif", 50).into_font())
+        .margin(5)
+        .x_label_area_size(30)
+        .y_label_area_size(30)
+        .build_cartesian_2d(0..WINDOWS_SIZE, -10.0f32..10.0f32).unwrap();
+
+    chart.configure_mesh().draw().unwrap();
+
+    // Axis X
+    let data_x = ACCELEROMETER_X_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_x.iter().enumerate().map(|(i, d)| (i, *d)), &BLUE,
+    )).unwrap();
+
+    chart.draw_series(
+        data_x.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, BLUE.filled()),
+    )).unwrap().label("X");
+
+    // Axis Y
+    let data_y = ACCELEROMETER_Y_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_y.iter().enumerate().map(|(i, d)| (i, *d)), &RED,
+    )).unwrap();
+    chart.draw_series(
+        data_y.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, RED.filled()),
+    )).unwrap().label("Y");
+
+    // Axis Z
+    let data_z = ACCELEROMETER_Z_STATE.lock().unwrap().clone();
+    chart.draw_series(LineSeries::new(
+        data_z.iter().enumerate().map(|(i, d)| (i, *d)), &GREEN,
+    )).unwrap();
+    chart.draw_series(
+        data_z.iter().enumerate()
+            .map(|(i, d)| Circle::new((i, *d), 3, GREEN.filled()),
+    )).unwrap().label("Z");
+
+    root.present().unwrap();
 }
