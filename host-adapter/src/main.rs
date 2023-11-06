@@ -1,5 +1,5 @@
-use std::{sync::{Arc, Mutex}, collections::VecDeque};
-use plotters::prelude::*;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 
 use lapin::{
     message::DeliveryResult,
@@ -7,38 +7,66 @@ use lapin::{
     types::FieldTable,
     ConnectionProperties, Channel, Consumer, Connection,
 };
-use log::info;
-use once_cell::sync::Lazy;
+use evdev::{uinput::VirtualDeviceBuilder, AttributeSet, InputEvent, KeyCode, KeyEvent};
+use log::{info, debug};
 
-const DEVICE_ID: &str = "DF:89:2B:DA:0B:CB";
-const SERVER_UUID: &str = "0000dad0-0000-0000-0000-000000000000";
-const BUTTON_UUID: &str = "0000dad0-0001-0000-0000-000000000000";
-const ACCELEROMETER_X_UUID: &str = "0000dad0-0002-0000-0000-000000000000";
-const ACCELEROMETER_Y_UUID: &str = "0000dad0-0002-0000-0000-000000000001";
-const ACCELEROMETER_Z_UUID: &str = "0000dad0-0002-0000-0000-000000000002";
-const GYROSCOPE_X_UUID: &str = "0000dad0-0003-0000-0000-000000000000";
-const GYROSCOPE_Y_UUID: &str = "0000dad0-0003-0000-0000-000000000001";
-const GYROSCOPE_Z_UUID: &str = "0000dad0-0003-0000-0000-000000000002";
-
-const WINDOWS_SIZE: usize = 500;
-static BUTTON_STATE: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(false)));
-static ACCELEROMETER_X_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-static ACCELEROMETER_Y_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-static ACCELEROMETER_Z_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-static GYROSCOPE_X_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-static GYROSCOPE_Y_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-static GYROSCOPE_Z_STATE: Lazy<Arc<Mutex<VecDeque<f32>>>> = Lazy::new(|| Arc::new(Mutex::new((0..WINDOWS_SIZE).map(|_| 0.0 ).collect())));
-
-fn push_value(data_windows: &Arc<Mutex<VecDeque<f32>>>, value: f32) {
-    let mut data_windows = data_windows.lock().unwrap();
-    if data_windows.len() == WINDOWS_SIZE {
-        data_windows.pop_back();
-    }
-    data_windows.push_front(value);
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+enum LeftRight {
+    Left,
+    #[default] None,
+    Right,
 }
 
+impl From<i8> for LeftRight {
+    fn from(lr: i8) -> Self {
+        match lr {
+            1 => LeftRight::Left,
+            0 => LeftRight::None,
+            -1 => LeftRight::Right,
+            _ => panic!("Invalid value for LeftRight"),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+enum UpDown {
+    Up,
+    #[default] None,
+    Down,
+}
+
+impl From<i8> for UpDown {
+    fn from(ud: i8) -> Self {
+        match ud {
+            -1 => UpDown::Up,
+            0 => UpDown::None,
+            1 => UpDown::Down,
+            _ => panic!("Invalid value for UpDown"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Control {
+    left_right: LeftRight,
+    up_down: UpDown,
+    shoot: bool,
+    jump: bool,
+    spin: bool,
+}
+
+const DEVICE_ID: &str = "DF:89:2B:DA:0B:CB";
+const CONTROL_SERVER_UUID: &str = "0000dad0-0000-0000-0000-000000000000";
+const LEFT_RIGHT_UUID    : &str = "0000dad0-0000-0000-0000-000000000001";
+const UP_DOWN_UUID       : &str = "0000dad0-0000-0000-0000-000000000002";
+const SHOOT_UUID         : &str = "0000dad0-0000-0000-0000-000000000003";
+const JUMP_UUID          : &str = "0000dad0-0000-0000-0000-000000000004";
+const SPIN_UUID          : &str = "0000dad0-0000-0000-0000-000000000005";
+
+static CONTROL_STATE: Lazy<Arc<Mutex<Control>>> = Lazy::new(|| Arc::new(Mutex::new(Control::default())));
+
 async fn create_consumer(channel: &Channel, characterist_uuid: &str) -> Result<Consumer, lapin::Error> {
-    let queue_name = format!("{DEVICE_ID}/{SERVER_UUID}/{characterist_uuid}");
+    let queue_name = format!("{DEVICE_ID}/{CONTROL_SERVER_UUID}/{characterist_uuid}");
     channel.basic_consume(
         queue_name.as_str(),
         queue_name.as_str(),
@@ -58,100 +86,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let connection = Connection::connect(uri, options).await.unwrap();
     let channel = connection.create_channel().await.unwrap();
 
-    create_consumer(&channel, BUTTON_UUID).await.map(|consumer| {
+    create_consumer(&channel, LEFT_RIGHT_UUID).await.map(|consumer| {
         consumer.set_delegate(move |delivery: DeliveryResult| async {
             let delivery = match delivery {
                 Err(_) | Ok(None) => return,
                 Ok(Some(delivery)) => delivery,
             };
 
-            let value: bool = delivery.data[0] != 0;
-            *BUTTON_STATE.lock().unwrap() = value;
-            info!("Received value {:?}", value);
+            {
+                let value: i8 = delivery.data[0] as i8;
+                let mut control = CONTROL_STATE.lock().unwrap();
+                control.left_right = value.into();
+                debug!("RECEIVE left_right: {:?}", control.left_right);
+            }
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
     })?;
 
-    create_consumer(&channel, ACCELEROMETER_X_UUID).await.map(|consumer| {
+    create_consumer(&channel, UP_DOWN_UUID).await.map(|consumer| {
         consumer.set_delegate(move |delivery: DeliveryResult| async {
             let delivery = match delivery {
                 Err(_) | Ok(None) => return,
                 Ok(Some(delivery)) => delivery,
             };
 
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&ACCELEROMETER_X_STATE, value);
+            {
+                let value: i8 = delivery.data[0] as i8;
+                let mut control = CONTROL_STATE.lock().unwrap();
+                control.up_down = value.into();
+                debug!("RECEIVE up_down: {:?}", control.up_down);
+            }
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
     })?;
 
-    create_consumer(&channel, ACCELEROMETER_Y_UUID).await.map(|consumer| {
+    create_consumer(&channel, SHOOT_UUID).await.map(|consumer| {
         consumer.set_delegate(move |delivery: DeliveryResult| async {
             let delivery = match delivery {
                 Err(_) | Ok(None) => return,
                 Ok(Some(delivery)) => delivery,
             };
 
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&ACCELEROMETER_Y_STATE, value);
+            {
+                let value = delivery.data[0] != 0;
+                let mut control = CONTROL_STATE.lock().unwrap();
+                control.shoot = value;
+                debug!("RECEIVE shoot: {:?}", control.shoot);
+            }
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
     })?;
 
-    create_consumer(&channel, ACCELEROMETER_Z_UUID).await.map(|consumer| {
+    create_consumer(&channel, JUMP_UUID).await.map(|consumer| {
         consumer.set_delegate(move |delivery: DeliveryResult| async {
             let delivery = match delivery {
                 Err(_) | Ok(None) => return,
                 Ok(Some(delivery)) => delivery,
             };
 
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&ACCELEROMETER_Z_STATE, value);
+            {
+                let value = delivery.data[0] != 0;
+                let mut control = CONTROL_STATE.lock().unwrap();
+                control.jump = value;
+                debug!("RECEIVE jump: {:?}", control.jump);
+            }
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
     })?;
 
-    create_consumer(&channel, GYROSCOPE_X_UUID).await.map(|consumer| {
+    create_consumer(&channel, SPIN_UUID).await.map(|consumer| {
         consumer.set_delegate(move |delivery: DeliveryResult| async {
             let delivery = match delivery {
                 Err(_) | Ok(None) => return,
                 Ok(Some(delivery)) => delivery,
             };
 
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&GYROSCOPE_X_STATE, value);
-
-            delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
-        });
-    })?;
-
-    create_consumer(&channel, GYROSCOPE_Y_UUID).await.map(|consumer| {
-        consumer.set_delegate(move |delivery: DeliveryResult| async {
-            let delivery = match delivery {
-                Err(_) | Ok(None) => return,
-                Ok(Some(delivery)) => delivery,
-            };
-
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&GYROSCOPE_Y_STATE, value);
-
-            delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
-        });
-    })?;
-
-    create_consumer(&channel, GYROSCOPE_Z_UUID).await.map(|consumer| {
-        consumer.set_delegate(move |delivery: DeliveryResult| async {
-            let delivery = match delivery {
-                Err(_) | Ok(None) => return,
-                Ok(Some(delivery)) => delivery,
-            };
-
-            let value = f32::from_le_bytes(delivery.data[..].try_into().unwrap());
-            push_value(&GYROSCOPE_Z_STATE, value);
+            {
+                let value = delivery.data[0] != 0;
+                let mut control = CONTROL_STATE.lock().unwrap();
+                control.spin = value;
+                debug!("RECEIVE spin: {:?}", control.spin);
+            }
 
             delivery.ack(BasicAckOptions::default()).await.expect("Failed to ack send_webhook_event message");
         });
@@ -160,8 +179,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Plot data
     tokio::spawn(async move {
+        let mut previous_control = Control::default();
+        let mut keys_set = AttributeSet::new();
+        for key in [KeyCode::KEY_UP, KeyCode::KEY_DOWN, KeyCode::KEY_LEFT, KeyCode::KEY_RIGHT, KeyCode::KEY_X, KeyCode::KEY_Z, KeyCode::KEY_C] {
+            keys_set.insert(key);
+        }
+
+        let mut device = VirtualDeviceBuilder::new().unwrap()
+            .name("ESP Wii Controller")
+            .with_keys(&keys_set).unwrap()
+            .build().unwrap();
+
         loop {
-            plot_data();
+            let current_control = (*CONTROL_STATE.lock().unwrap()).clone();
+            let mut keys_events = Vec::new();
+
+            if previous_control.left_right != current_control.left_right {
+                info!("left_right: {:?} to {:?}", previous_control.left_right, current_control.left_right);
+                match previous_control.left_right {
+                    LeftRight::Left => keys_events.push(KeyCode::KEY_LEFT.release()),
+                    LeftRight::Right => keys_events.push(KeyCode::KEY_RIGHT.release()),
+                    LeftRight::None => {},
+                }
+
+                match current_control.left_right {
+                    LeftRight::Left => keys_events.push(KeyCode::KEY_LEFT.press()),
+                    LeftRight::Right => keys_events.push(KeyCode::KEY_RIGHT.press()),
+                    LeftRight::None => {},
+                }
+            }
+
+            if previous_control.up_down != current_control.up_down {
+                info!("up_down: {:?} to {:?}", previous_control.up_down, current_control.up_down);
+                match previous_control.up_down {
+                    UpDown::Up => keys_events.push(KeyCode::KEY_UP.release()),
+                    UpDown::Down => keys_events.push(KeyCode::KEY_DOWN.release()),
+                    UpDown::None => {},
+                }
+
+                match current_control.up_down {
+                    UpDown::Up => keys_events.push(KeyCode::KEY_UP.press()),
+                    UpDown::Down => keys_events.push(KeyCode::KEY_DOWN.press()),
+                    UpDown::None => {},
+                }
+            }
+
+            if previous_control.shoot != current_control.shoot {
+                info!("shoot: {:?} to {:?}", previous_control.shoot, current_control.shoot);
+                if current_control.shoot {
+                    keys_events.push(KeyCode::KEY_X.press());
+                } else {
+                    keys_events.push(KeyCode::KEY_X.release());
+                }
+            }
+
+            if previous_control.jump != current_control.jump {
+                info!("jump: {:?} to {:?}", previous_control.jump, current_control.jump);
+                if current_control.jump {
+                    keys_events.push(KeyCode::KEY_Z.press());
+                } else {
+                    keys_events.push(KeyCode::KEY_Z.release());
+                }
+            }
+
+            if previous_control.spin != current_control.spin {
+                info!("spin: {:?} to {:?}", previous_control.spin, current_control.spin);
+                if current_control.spin {
+                    keys_events.push(KeyCode::KEY_C.press());
+                } else {
+                    keys_events.push(KeyCode::KEY_C.release());
+                }
+            }
+
+            previous_control = current_control;
+            device.emit(&keys_events[..]).unwrap();
             tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
     });
@@ -174,98 +265,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn plot_data() {
-    plot_accelerometer();
-    plot_gyroscope();
+trait KeyCodeExtension {
+    fn release(&self) -> InputEvent;
+    fn press(&self) -> InputEvent;
 }
-
-fn plot_gyroscope() {
-     let root = BitMapBackend::new("Gyroscope.png", (640, 480)).into_drawing_area();
-    root.fill(&WHITE).unwrap();
-    let mut chart = ChartBuilder::on(&root)
-        .caption("Gyroscope", ("sans-serif", 50).into_font())
-        .margin(5)
-        .x_label_area_size(30)
-        .y_label_area_size(30)
-        .build_cartesian_2d(0..WINDOWS_SIZE, -4f32..4f32).unwrap();
-
-    chart.configure_mesh().draw().unwrap();
-
-    // Axis X
-    let data_x = GYROSCOPE_X_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_x.iter().enumerate().map(|(i, d)| (i, *d)), &BLUE,
-    )).unwrap();
-    chart.draw_series(
-        data_x.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, BLUE.filled()),
-    )).unwrap().label("X");
-
-    // Axis Y
-    let data_y = GYROSCOPE_Y_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_y.iter().enumerate().map(|(i, d)| (i, *d)), &RED,
-    )).unwrap();
-    chart.draw_series(
-        data_y.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, RED.filled()),
-    )).unwrap().label("Y");
-
-    // Axis Z
-    let data_z = GYROSCOPE_Z_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_z.iter().enumerate().map(|(i, d)| (i, *d)), &GREEN,
-    )).unwrap();
-    chart.draw_series(
-        data_z.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, GREEN.filled()),
-    )).unwrap().label("Z");
-
-    root.present().unwrap();
-}
-
-fn plot_accelerometer() {
-     let root = BitMapBackend::new("Accelerometer.png", (640, 480)).into_drawing_area();
-    root.fill(&WHITE).unwrap();
-    let mut chart = ChartBuilder::on(&root)
-        .caption("Accelerometer", ("sans-serif", 50).into_font())
-        .margin(5)
-        .x_label_area_size(30)
-        .y_label_area_size(30)
-        .build_cartesian_2d(0..WINDOWS_SIZE, -10.0f32..10.0f32).unwrap();
-
-    chart.configure_mesh().draw().unwrap();
-
-    // Axis X
-    let data_x = ACCELEROMETER_X_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_x.iter().enumerate().map(|(i, d)| (i, *d)), &BLUE,
-    )).unwrap();
-
-    chart.draw_series(
-        data_x.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, BLUE.filled()),
-    )).unwrap().label("X");
-
-    // Axis Y
-    let data_y = ACCELEROMETER_Y_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_y.iter().enumerate().map(|(i, d)| (i, *d)), &RED,
-    )).unwrap();
-    chart.draw_series(
-        data_y.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, RED.filled()),
-    )).unwrap().label("Y");
-
-    // Axis Z
-    let data_z = ACCELEROMETER_Z_STATE.lock().unwrap().clone();
-    chart.draw_series(LineSeries::new(
-        data_z.iter().enumerate().map(|(i, d)| (i, *d)), &GREEN,
-    )).unwrap();
-    chart.draw_series(
-        data_z.iter().enumerate()
-            .map(|(i, d)| Circle::new((i, *d), 3, GREEN.filled()),
-    )).unwrap().label("Z");
-
-    root.present().unwrap();
+impl KeyCodeExtension for KeyCode {
+    fn release(&self) -> InputEvent {
+        *KeyEvent::new(KeyCode(self.code()), 0)
+    }
+    fn press(&self) -> InputEvent {
+        *KeyEvent::new(KeyCode(self.code()), 1)
+    }
 }
