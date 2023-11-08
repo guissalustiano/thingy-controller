@@ -1,36 +1,47 @@
-#![no_std]
-#![no_main]
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
+#![no_std]
+#![no_main]
+
 mod ble;
 
-use ble::{advertise_connectable, softdevice_setup};
-use libm::{atan2f, sqrtf};
-use mpu9250::ImuMeasurements;
-
 use core::cell::RefCell;
+
+// math functions
+use libm::{atan2f, sqrtf};
+
+// logging
 use defmt::*;
+use {defmt_rtt as _, panic_probe as _};
+
+// async
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
-use embassy_nrf::{bind_interrupts, interrupt};
+use embassy_sync::blocking_mutex::{raw::NoopRawMutex, NoopMutex};
 use embassy_time::{Delay, Timer};
+use futures::future::select;
+use futures::pin_mut;
 use static_cell::StaticCell;
 
-use defmt::Format;
+// HAL
 use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_nrf::peripherals::{P0_11, TWISPI0};
 use embassy_nrf::twim::{self, Twim};
-use embassy_sync::blocking_mutex::{raw::NoopRawMutex, NoopMutex};
-use futures::future::select;
-use futures::pin_mut;
-use mpu9250::{device, Imu, Mpu9250};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::{bind_interrupts, interrupt};
+
+// Ble
 use nrf_softdevice::ble::{gatt_server, Connection};
-use sx1509::Sx1509;
+use ble::{advertise_connectable, softdevice_setup};
 
-use {defmt_rtt as _, panic_probe as _};
+// Sensor
+use sx1509::Sx1509; // IO expander
+use mpu9250::{device, Imu, Mpu9250, ImuMeasurements}; // IMU
 
+
+// When no GATT service is connected, the notification will fail.
+// This is not a problem, so we ignore the error and just log it.
 fn unwrap_notify<T>(result: Result<(), T>, name: &str) {
     match result {
         Ok(_) => info!("{} notify success", name),
@@ -38,6 +49,7 @@ fn unwrap_notify<T>(result: Result<(), T>, name: &str) {
     }
 }
 
+// Type for meaningfull code
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Format)]
 enum LeftRight {
     Left,
@@ -83,6 +95,7 @@ pub struct Control {
     spin: bool,
 }
 
+// Concurrents decision tree manually evaluated
 fn my_incredible_machine_learning_model(
     imu: ImuMeasurements<(f32, f32, f32)>,
     button: bool,
@@ -109,7 +122,8 @@ fn my_incredible_machine_learning_model(
     }
 }
 
-async fn control_service<'a>(
+// Read sensor, evaluate control and notify changes
+async fn control_task<'a>(
     mpu: &mut Mpu9250<
         device::I2cDevice<I2cDevice<'static, NoopRawMutex, Twim<'static, TWISPI0>>>,
         Imu,
@@ -120,7 +134,9 @@ async fn control_service<'a>(
 ) {
     let mut previous_control = Control::default();
     loop {
-        Timer::after_millis(100).await;
+        // Improvement oportunity: use MPU interrupt
+        Timer::after_millis(100).await; // It's running an preemtive scheduler, so we need to yield
+
         let data = mpu.all().expect("could not read all");
         let current_control = my_incredible_machine_learning_model(data, btn.is_low());
         notify_control(&previous_control, &current_control, server, connection);
@@ -128,6 +144,7 @@ async fn control_service<'a>(
     }
 }
 
+// Notify changes
 fn notify_control<'a>(
     previous_state: &Control,
     current_state: &Control,
@@ -181,6 +198,8 @@ fn notify_control<'a>(
     }
 }
 
+// GATT Service
+// This is a macro that generates a struct with the GATT service.
 #[nrf_softdevice::gatt_service(uuid = "0000DAD0-0000-0000-0000-000000000000")]
 pub struct ControlService {
     #[characteristic(uuid = "0000DAD0-0000-0000-0000-000000000001", notify)]
@@ -202,29 +221,35 @@ pub struct ControlService {
 #[nrf_softdevice::gatt_server]
 pub struct Server {
     pub control: ControlService,
-    //pub sensor: SensorService,
 }
 
+
+// bind I2C interrupts
 bind_interrupts!(struct Irqs {
     SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<TWISPI0>;
 });
 
+// Shared I2C bus
 static I2C_BUS: StaticCell<NoopMutex<RefCell<Twim<TWISPI0>>>> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    info!("Hello World!");
+    info!("Hello World!"); // Sanity check
 
     const DEVICE_NAME: &'static [u8; 18] = b"Thingy Wii Control";
 
-    // First we get the peripherals access crate.
+    // Fet the peripherals access crate.
+
+    // Reduce interrupt priority because of softdevice
     let mut config = embassy_nrf::config::Config::default();
     config.gpiote_interrupt_priority = interrupt::Priority::P2;
     config.time_interrupt_priority = interrupt::Priority::P2;
-    let p = embassy_nrf::init(config);
 
-    let mut _vdd_pwd = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
+    let p = embassy_nrf::init(config);
     let mut btn = Input::new(p.P0_11, Pull::Up);
+
+    // Turn on VDD Regulator
+    let mut _vdd_pwd = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
     Timer::after_millis(10).await;
 
     let (sd, server) = softdevice_setup(&spawner, &DEVICE_NAME);
@@ -261,7 +286,7 @@ async fn main(spawner: Spawner) {
         let conn = unwrap!(advertise_connectable(sd, &DEVICE_NAME).await);
         info!("advertising done! I have a connection.");
 
-        let control_fut = control_service(&mut mpu, &mut btn, &server, &conn);
+        let control_fut = control_task(&mut mpu, &mut btn, &server, &conn);
 
         let gatt_fut = gatt_server::run(&conn, &server, |_e| {
             info!("Connected/Disconnected");

@@ -13,6 +13,7 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
+// from: https://github.com/embassy-rs/nrf-softdevice/blob/487f98ea03638472fcd66ed16c5f9c97c501e876/examples/src/bin/ble_bas_peripheral_notify.rs#L106-L152
 pub fn softdevice_setup<'a, const N: usize>(
     spawner: &'a Spawner,
     device_name: &[u8; N],
@@ -59,7 +60,8 @@ pub fn softdevice_setup<'a, const N: usize>(
     return (sd, server);
 }
 
-// https://docs.silabs.com/bluetooth/4.0/general/adv-and-scanning/bluetooth-adv-data-basics
+// based on: https://github.com/embassy-rs/nrf-softdevice/blob/487f98ea03638472fcd66ed16c5f9c97c501e876/examples/src/bin/ble_bas_peripheral_notify.rs#L143-L152
+// but uses the incredible const generics to make the device name length a compile-time constant
 pub async fn advertise_connectable<const N: usize>(
     sd: &Softdevice,
     device_name: &[u8; N],
@@ -69,6 +71,7 @@ where
 {
     let adv_data = &mut [0; N + 9];
 
+    // https://docs.silabs.com/bluetooth/4.0/general/adv-and-scanning/bluetooth-adv-data-basics
     adv_data[..9].copy_from_slice(&[
         0x02,
         0x01,
