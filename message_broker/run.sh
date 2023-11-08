@@ -1,3 +1,5 @@
+#!/bin/sh
+
 podman run -it --rm \
     --name rabbitmq \
     -e RABBITMQ_DEFAULT_USER=user \
