@@ -1,4 +1,4 @@
-package com.example.flutter_bridge
+package dev.guissalustiano.flutter_gateway
 
 import io.flutter.embedding.android.FlutterActivity
 
