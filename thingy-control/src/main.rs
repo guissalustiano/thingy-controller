@@ -6,29 +6,28 @@
 
 mod ble;
 
+use ble::{advertise_connectable, softdevice_setup};
 use libm::{atan2f, sqrtf};
-use ble::{softdevice_setup, advertise_connectable};
 use mpu9250::ImuMeasurements;
 
 use core::cell::RefCell;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::{interrupt, bind_interrupts};
-use embassy_nrf::gpio::{Input, Pull, Output, Level, OutputDrive};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::{bind_interrupts, interrupt};
 use embassy_time::{Delay, Timer};
 use static_cell::StaticCell;
 
+use defmt::Format;
+use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_nrf::peripherals::{P0_11, TWISPI0};
 use embassy_nrf::twim::{self, Twim};
-use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
+use embassy_sync::blocking_mutex::{raw::NoopRawMutex, NoopMutex};
 use futures::future::select;
 use futures::pin_mut;
-use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+use mpu9250::{device, Imu, Mpu9250};
 use nrf_softdevice::ble::{gatt_server, Connection};
 use sx1509::Sx1509;
-use mpu9250::{Mpu9250, Imu, device};
-use defmt::Format;
-
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -42,7 +41,8 @@ fn unwrap_notify<T>(result: Result<(), T>, name: &str) {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Format)]
 enum LeftRight {
     Left,
-    #[default] None,
+    #[default]
+    None,
     Right,
 }
 
@@ -59,7 +59,8 @@ impl From<LeftRight> for i8 {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Format)]
 enum UpDown {
     Up,
-    #[default] None,
+    #[default]
+    None,
     Down,
 }
 
@@ -89,8 +90,8 @@ fn my_incredible_machine_learning_model(
     let accel = imu.accel;
     let gyro = imu.gyro;
 
-    let pitch = atan2f(accel.0, sqrtf(accel.1*accel.1 + accel.2*accel.2));
-    let roll = atan2f(accel.1, sqrtf(accel.0*accel.0 + accel.2*accel.2));
+    let pitch = atan2f(accel.0, sqrtf(accel.1 * accel.1 + accel.2 * accel.2));
+    let roll = atan2f(accel.1, sqrtf(accel.0 * accel.0 + accel.2 * accel.2));
     Control {
         up_down: match pitch {
             x if x < -0.3 => UpDown::Up,
@@ -108,13 +109,14 @@ fn my_incredible_machine_learning_model(
     }
 }
 
-
-
-
 async fn control_service<'a>(
-    mpu: &mut Mpu9250<device::I2cDevice<I2cDevice<'static, NoopRawMutex, Twim<'static, TWISPI0>>>, Imu>, 
+    mpu: &mut Mpu9250<
+        device::I2cDevice<I2cDevice<'static, NoopRawMutex, Twim<'static, TWISPI0>>>,
+        Imu,
+    >,
     btn: &mut Input<'static, P0_11>,
-    server: &'a Server, connection: &'a Connection
+    server: &'a Server,
+    connection: &'a Connection,
 ) {
     let mut previous_control = Control::default();
     loop {
@@ -129,34 +131,55 @@ async fn control_service<'a>(
 fn notify_control<'a>(
     previous_state: &Control,
     current_state: &Control,
-    server: &'a Server, connection: &'a Connection
+    server: &'a Server,
+    connection: &'a Connection,
 ) {
     if previous_state.left_right != current_state.left_right {
         info!("left_right: {:?}", current_state.left_right);
-        unwrap_notify(server.control.left_right_notify(connection, &current_state.left_right.into()), "left_right");
+        unwrap_notify(
+            server
+                .control
+                .left_right_notify(connection, &current_state.left_right.into()),
+            "left_right",
+        );
     }
 
     if previous_state.up_down != current_state.up_down {
         info!("up_down: {:?}", current_state.up_down);
-        unwrap_notify(server.control.up_down_notify(connection, &current_state.up_down.into()), "up_down");
+        unwrap_notify(
+            server
+                .control
+                .up_down_notify(connection, &current_state.up_down.into()),
+            "up_down",
+        );
     }
 
     if previous_state.shoot != current_state.shoot {
         info!("shoot: {:?}", current_state.shoot);
-        unwrap_notify(server.control.shoot_notify(connection, &current_state.shoot), "shoot");
+        unwrap_notify(
+            server
+                .control
+                .shoot_notify(connection, &current_state.shoot),
+            "shoot",
+        );
     }
 
     if previous_state.jump != current_state.jump {
         info!("jump: {:?}", current_state.jump);
-        unwrap_notify(server.control.jump_notify(connection, &current_state.jump), "jump");
+        unwrap_notify(
+            server.control.jump_notify(connection, &current_state.jump),
+            "jump",
+        );
     }
 
     if previous_state.spin != current_state.spin {
         info!("spin: {:?}", current_state.spin);
-        unwrap_notify(server.control.spin_notify(connection, &current_state.spin), "spin");
+        unwrap_notify(
+            server.control.spin_notify(connection, &current_state.spin),
+            "spin",
+        );
     }
 }
-
 
 #[nrf_softdevice::gatt_service(uuid = "0000DAD0-0000-0000-0000-000000000000")]
 pub struct ControlService {
@@ -176,47 +199,6 @@ pub struct ControlService {
     spin: bool,
 }
 
-/*
-fn notify_sensor<'a>(
-    btn: bool,
-    acel: (f32, f32, f32),
-    gyro: (f32, f32, f32),
-    server: &'a Server, connection: &'a Connection
-) {
-    unwrap_notify(server.sensor.button_notify(connection, &btn), "button");
-    unwrap_notify(server.sensor.accelerometer_x_notify(connection, &acel.0), "accel_x");
-    unwrap_notify(server.sensor.accelerometer_y_notify(connection, &acel.1), "accel_y");
-    unwrap_notify(server.sensor.accelerometer_z_notify(connection, &acel.2), "accel_z");
-    unwrap_notify(server.sensor.gyroscope_x_notify(connection, &gyro.0), "gyro_x");
-    unwrap_notify(server.sensor.gyroscope_y_notify(connection, &gyro.1), "gyro_y");
-    unwrap_notify(server.sensor.gyroscope_z_notify(connection, &gyro.2), "gyro_z");
-}
-
-#[nrf_softdevice::gatt_service(uuid = "0000DAD0-0001-0000-0000-000000000000")]
-pub struct SensorService {
-    #[characteristic(uuid = "0000DAD0-0001-0001-0000-000000000000", notify)]
-    button: bool,
-
-    #[characteristic(uuid = "0000DAD0-0001-0002-0000-000000000000", notify)]
-    accelerometer_x: f32,
-
-    #[characteristic(uuid = "0000DAD0-0001-0002-0000-000000000001", notify)]
-    accelerometer_y: f32,
-
-    #[characteristic(uuid = "0000DAD0-0001-0002-0000-000000000002", notify)]
-    accelerometer_z: f32,
-
-    #[characteristic(uuid = "0000DAD0-0001-0003-0000-000000000000", notify)]
-    gyroscope_x: f32,
-
-    #[characteristic(uuid = "0000DAD0-0001-0003-0000-000000000001", notify)]
-    gyroscope_y: f32,
-
-    #[characteristic(uuid = "0000DAD0-0001-0003-0000-000000000002", notify)]
-    gyroscope_z: f32,
- }
-*/
-
 #[nrf_softdevice::gatt_server]
 pub struct Server {
     pub control: ControlService,
@@ -228,7 +210,6 @@ bind_interrupts!(struct Irqs {
 });
 
 static I2C_BUS: StaticCell<NoopMutex<RefCell<Twim<TWISPI0>>>> = StaticCell::new();
-
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -289,9 +270,6 @@ async fn main(spawner: Spawner) {
         pin_mut!(gatt_fut);
         pin_mut!(control_fut);
 
-        select(
-            gatt_fut,
-            control_fut,
-        ).await;
+        select(gatt_fut, control_fut).await;
     }
 }
