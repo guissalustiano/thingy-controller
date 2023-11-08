@@ -9,6 +9,12 @@ https://github.com/guissalustiano/thingy-controller/assets/32439070/f664c648-a10
 # Architecture
 ![Architecture Overview](docs/imgs/ArchitectureOverview.excalidraw.svg)
 
+## Components
+- [Device](thingy-control/)
+- [Gateway app](host-adapter/)
+- [Queue](menssage_broker/)
+- [Host Adapter](host-adapter/)
+
 # Device BLE services and representations
 - Controller: `0000DAD0-0000-0000-0000-000000000000`
     - LeftRight: `0000DAD0-0000-0000-0000-000000000001`
