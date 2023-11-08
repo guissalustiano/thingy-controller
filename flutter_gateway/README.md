@@ -1,16 +1,23 @@
-# flutter_gateway
+# Flutter BLE Gateway
+Foward BLE notification to RabbitMQ queue's.
 
-A new Flutter project.
+# How it works?
+When starting the application, 
+connect to rabbitMQ and start searching for devices via Bluetooth with `deviceName`, 
+when it finds connecta on the device, it discovers all services and notification 
+features and subscribes to all of them by creating a queue with `"$device_id/$service_id/$characterist_id"`.
+Each new notification on the device is forwarded to the rabbitMQ queue.
 
-## Getting Started
+# I'm not a mobile developer
+The ideia is keep as simple as possible, Advertisement search and RabbitMQ user,
+password and address is hardcoded and there is only one screen without state.
+The scanning run only when app start and if fail you need to restart them, the feedback is just on logs.
 
-This project is a starting point for a Flutter application.
+# How to run
+## Requirements
+- [Flutter](https://docs.flutter.dev/get-started/install)
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Run
+```bash
+flutter run
+```
