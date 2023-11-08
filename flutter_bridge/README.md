@@ -1,4 +1,4 @@
-# flutter_bridge
+# flutter_gateway
 
 A new Flutter project.
 
