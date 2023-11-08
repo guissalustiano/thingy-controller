@@ -94,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let connection = Connection::connect(uri, options).await.unwrap();
     let channel = connection.create_channel().await.unwrap();
 
+    // Read queue and update CONTROL_STATE
     create_consumer(&channel, LEFT_RIGHT_UUID)
         .await
         .map(|consumer| {
@@ -205,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     })?;
 
-    // Plot data
+    // Dispach Keyboard events
     tokio::spawn(async move {
         let mut previous_control = Control::default();
         let mut keys_set = AttributeSet::new();

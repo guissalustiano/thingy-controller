@@ -10,7 +10,7 @@ https://github.com/guissalustiano/thingy-controller/assets/32439070/f664c648-a10
 ![Architecture Overview](docs/imgs/ArchitectureOverview.excalidraw.svg)
 
 ## Components
-- [Device](thingy-control/)
-- [Gateway app](flutter_gateway/)
-- [Queue](menssage_broker/)
-- [Host Adapter](host-adapter/)
+- [Device](thingy-control/) 308 LoC
+- [Gateway app](flutter_gateway/) - 136 LoC
+- [Queue](menssage_broker/) - 0 LoC
+- [Host Adapter](host-adapter/) - 289 LoC
