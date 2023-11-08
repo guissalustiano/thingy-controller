@@ -11,7 +11,7 @@ https://github.com/guissalustiano/thingy-controller/assets/32439070/f664c648-a10
 
 ## Components
 - [Device](thingy-control/)
-- [Gateway app](host-adapter/)
+- [Gateway app](flutter_gateway/)
 - [Queue](menssage_broker/)
 - [Host Adapter](host-adapter/)
 
