@@ -9,6 +9,8 @@ https://github.com/guissalustiano/thingy-controller/assets/32439070/f664c648-a10
 # Architecture
 ![Architecture Overview](docs/imgs/ArchitectureOverview.excalidraw.svg)
 
+[Presentation slides](https://docs.google.com/presentation/d/e/2PACX-1vTnos5OwoKDWusqpnd-sa6tKcuvkKpwxMkUwGILVSXXwLN9TXxYZPakCfE7Ar3PiUT9J4IHL9ZTX4Jt/pub?start=false&loop=false&delayms=3000)
+
 ## Components
 - [Device](thingy-control/) 308 LoC
 - [Gateway app](flutter_gateway/) - 136 LoC
